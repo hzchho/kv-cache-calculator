@@ -1,7 +1,4 @@
 ﻿# KV Cache Calculator
-
-![KV Cache Calculator screenshot](assets/screenshot.png)
-
 一个面向 LLM Inference / AI Infra 学习者的 KV Cache 显存估算与可视化工具。它把 KV Cache 的核心成本模型做成一个可以直接打开的静态网页，方便对比 batch、上下文长度、KV heads 和 dtype 对显存的影响。
 
 > A lightweight visual calculator for estimating LLM KV Cache memory usage across batch size, context length, KV heads, and dtype.
