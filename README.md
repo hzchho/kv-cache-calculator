@@ -21,13 +21,13 @@
 方式一：直接用浏览器打开：
 
 ```text
-index.html
+https://hzchho.github.io/kv-cache-calculator
 ```
 
 方式二：使用 Python 启动本地静态服务：
 
 ```powershell
-cd D:\WORKING\深圳大数据研究院\code\kv-cache-calculator
+cd ~/kv-cache-calculator
 python -m http.server 8000
 ```
 
