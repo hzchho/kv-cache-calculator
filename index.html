@@ -8,137 +8,103 @@
   </head>
   <body>
     <main class="app-shell">
-      <section class="hero-panel" aria-labelledby="page-title">
-        <div class="hero-copy">
-          <p class="eyebrow">LLM Inference Tool</p>
-          <h1 id="page-title">KV Cache Memory Calculator</h1>
-          <p class="hero-text">
-            输入模型结构、上下文长度、并发 batch 和 KV 精度，快速估算 decoder-only LLM 推理时 self-attention KV Cache 的理论显存占用。
-          </p>
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">LLM Inference Sizing</p>
+          <h1>KV Cache Memory Calculator</h1>
+          <p class="hero-text">估算 KV Cache 与 vLLM / vLLM Ascend 部署阶段 per-card 显存需求，适合 GLM-5.2、量化权重、TP/PP/DP/CP 对比和部署前快速判断。</p>
         </div>
-        <div class="formula-visual" aria-label="KV Cache 公式示意">
-          <div class="formula-node key">Key</div>
-          <div class="formula-arrow">×</div>
-          <div class="formula-node value">Value</div>
-          <div class="formula-stack">
-            <span>B</span><span>L</span><span>Hkv</span><span>T</span><span>d</span><span>dtype</span>
-          </div>
+        <div class="mode-tabs" role="tablist" aria-label="calculator mode">
+          <button type="button" class="mode-tab is-active" data-mode="deployment">Deployment Sizing</button>
+          <button type="button" class="mode-tab" data-mode="basic">KV Cache Basic</button>
         </div>
-      </section>
+      </header>
 
-      <section class="workspace" aria-label="KV Cache calculator workspace">
-        <form class="input-panel" id="calculator-form" novalidate>
-          <div class="panel-heading">
-            <h2>参数输入</h2>
-            <p>所有数值参数都按正整数校验。</p>
+      <section class="mode-panel is-active" id="deployment-mode" aria-label="deployment calculator">
+        <form class="input-panel" id="deployment-form" novalidate>
+          <div class="panel-heading compact">
+            <h2>部署参数</h2>
+            <p>默认面向 Ascend Atlas 800 A3 + GLM-5.2-W4A8C8；所有参数都可覆盖。</p>
           </div>
 
-          <div class="preset-row" aria-label="常用配置快捷填充">
-            <button type="button" class="preset-button" data-preset="gqa">GQA 常用</button>
-            <button type="button" class="preset-button" data-preset="mha">MHA 对比</button>
-            <button type="button" class="preset-button" data-preset="long">长上下文</button>
-            <button type="button" class="preset-button" data-preset="batch">大 batch</button>
+          <div class="field-grid dense">
+            <label class="field"><span>模型/量化预设</span><select id="model-preset"><option value="glm52-w4a8c8" selected>GLM-5.2-W4A8C8 · Ascend</option><option value="glm52-w8a8">GLM-5.2-W8A8 · Ascend</option><option value="glm52-fp8">GLM-5.2-FP8</option><option value="glm52-bf16">GLM-5.2-BF16</option><option value="custom">Custom</option></select></label>
+            <label class="field"><span>硬件预设</span><select id="hardware-preset"><option value="atlas-a3-64x16" selected>Atlas 800 A3 · 64G × 16</option><option value="atlas-a3-128x8">Atlas 800 A3 · 128G × 8</option><option value="atlas-a2-64x8">Atlas 800 A2 · 64G × 8</option><option value="h200-141">NVIDIA H200 · 141G</option><option value="custom">Custom</option></select></label>
+
+            <label class="field"><span>单卡显存 GiB</span><input id="gpu-memory-gib" type="number" min="1" step="0.1" value="64" /></label>
+            <label class="field"><span>卡数</span><input id="gpu-count" type="number" min="1" step="1" value="16" /></label>
+            <label class="field"><span>memory utilization</span><input id="gpu-util" type="number" min="0.01" max="1" step="0.01" value="0.80" /></label>
+            <label class="field"><span>Runtime reserve GiB</span><input id="runtime-reserve-gib" type="number" min="0" step="0.1" value="8" /></label>
+
+            <label class="field"><span>TP</span><input id="tp-size" type="number" min="1" step="1" value="16" /></label>
+            <label class="field"><span>PP</span><input id="pp-size" type="number" min="1" step="1" value="1" /></label>
+            <label class="field"><span>DP</span><input id="dp-size" type="number" min="1" step="1" value="1" /></label>
+            <label class="field"><span>KV CP / DCP shard</span><input id="kv-cp-size" type="number" min="1" step="1" value="16" /></label>
+            <label class="field checkbox-field"><input id="expert-parallel" type="checkbox" checked /><span>MoE expert parallel</span></label>
+
+            <label class="field"><span>Layers</span><input id="deploy-layers" type="number" min="1" step="1" value="78" /></label>
+            <label class="field"><span>KV heads</span><input id="deploy-kv-heads" type="number" min="1" step="1" value="64" /></label>
+            <label class="field"><span>K dim</span><input id="k-dim" type="number" min="1" step="1" value="256" /></label>
+            <label class="field"><span>V dim</span><input id="v-dim" type="number" min="1" step="1" value="256" /></label>
+
+            <label class="field"><span>max_model_len</span><input id="max-model-len" type="number" min="1" step="1" value="1024000" /></label>
+            <label class="field"><span>Full-context seqs</span><input id="max-num-seqs" type="number" min="1" step="1" value="1" /></label>
+            <label class="field"><span>block_size</span><input id="block-size" type="number" min="1" step="1" value="16" /></label>
+            <label class="field"><span>vLLM max_num_seqs</span><input id="scheduler-max-seqs" type="number" min="1" step="1" value="32" /></label>
+
+            <label class="field"><span>Total params B</span><input id="total-params-b" type="number" min="0.1" step="0.1" value="743" /></label>
+            <label class="field"><span>Weight bytes/param</span><input id="weight-bytes" type="number" min="0.01" step="0.01" value="0.5" /></label>
+            <label class="field"><span>KV bytes/element</span><input id="kv-bytes" type="number" min="0.01" step="0.01" value="1" /></label>
+            <label class="field"><span>Activation bytes</span><input id="activation-bytes" type="number" min="0.01" step="0.01" value="1" /></label>
+            <label class="field"><span>Expert weight %</span><input id="expert-weight-percent" type="number" min="0" max="100" step="1" value="85" /></label>
+            <label class="field"><span>Checkpoint size GiB 可选</span><input id="checkpoint-gib" type="number" min="0" step="0.1" placeholder="空=按参数量估算" /></label>
           </div>
-
-          <div class="field-grid">
-            <label class="field">
-              <span>模型层数 L</span>
-              <input id="layers" name="layers" type="number" min="1" step="1" value="32" inputmode="numeric" />
-            </label>
-
-            <label class="field">
-              <span>KV head 数 Hkv</span>
-              <input id="kv-heads" name="kvHeads" type="number" min="1" step="1" value="8" inputmode="numeric" />
-            </label>
-
-            <label class="field">
-              <span>上下文长度 T</span>
-              <input id="context" name="context" type="number" min="1" step="1" value="4096" inputmode="numeric" />
-            </label>
-
-            <label class="field">
-              <span>Batch / 并发 B</span>
-              <input id="batch" name="batch" type="number" min="1" step="1" value="4" inputmode="numeric" />
-            </label>
-
-            <label class="field">
-              <span>Head dimension d_head</span>
-              <input id="head-dim" name="headDim" type="number" min="1" step="1" value="128" inputmode="numeric" />
-            </label>
-
-            <label class="field">
-              <span>KV Cache dtype</span>
-              <select id="dtype" name="dtype">
-                <option value="fp32">fp32 · 4 bytes</option>
-                <option value="fp16" selected>fp16 · 2 bytes</option>
-                <option value="bf16">bf16 · 2 bytes</option>
-                <option value="fp8">fp8 · 1 byte</option>
-                <option value="int8">int8 · 1 byte</option>
-                <option value="int4">int4 · 0.5 byte</option>
-                <option value="int2">int2 · 0.25 byte</option>
-              </select>
-            </label>
-          </div>
-
-          <p class="error-message" id="error-message" role="alert" aria-live="polite"></p>
+          <p class="error-message" id="deployment-error" role="alert" aria-live="polite"></p>
         </form>
 
-        <section class="results-panel" aria-labelledby="result-title">
-          <div class="panel-heading">
-            <h2 id="result-title">估算结果</h2>
-            <p>理论 KV 显存，不含系统额外开销。</p>
+        <section class="results-panel" aria-label="deployment results">
+          <div class="status-card" id="fit-status-card"><span class="metric-label">Fit Status</span><strong id="fit-status">--</strong><small id="fit-summary">等待输入</small></div>
+          <div class="result-grid deployment-results">
+            <article class="metric-card primary"><span class="metric-label">Total / Budget</span><strong id="deploy-total-gib">--</strong></article>
+            <article class="metric-card"><span class="metric-label">Headroom</span><strong id="deploy-headroom-gib">--</strong></article>
+            <article class="metric-card"><span class="metric-label">Weights / Card</span><strong id="deploy-weight-gib">--</strong></article>
+            <article class="metric-card"><span class="metric-label">KV Worst / Card</span><strong id="deploy-kv-gib">--</strong></article>
+            <article class="metric-card"><span class="metric-label">Max Cached Tokens</span><strong id="deploy-max-tokens">--</strong></article>
+            <article class="metric-card"><span class="metric-label">Max Full-Context Seq</span><strong id="deploy-max-concurrency">--</strong></article>
           </div>
-
-          <div class="result-grid">
-            <article class="metric-card primary">
-              <span class="metric-label">GiB</span>
-              <strong id="result-gib">2.0000</strong>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label">MiB</span>
-              <strong id="result-mib">2,048.00</strong>
-            </article>
-            <article class="metric-card wide">
-              <span class="metric-label">Bytes</span>
-              <strong id="result-bytes">2,147,483,648</strong>
-            </article>
+          <div class="breakdown-card">
+            <div class="breakdown-row"><span>Cards required</span><strong id="gpu-required">--</strong></div>
+            <div class="breakdown-row"><span>Effective KV tokens/card</span><strong id="effective-tokens">--</strong></div>
+            <div class="breakdown-row"><span>Available KV budget/card</span><strong id="available-kv-gib">--</strong></div>
+            <div class="breakdown-row"><span>Quantization</span><strong id="quant-summary">--</strong></div>
+            <div class="breakdown-row"><span>Formula</span><strong>ceil(tokens/CP) × ceil(L/PP) × ceil(Hkv/TP) × (K+V) × KV bytes</strong></div>
           </div>
-
-          <div class="formula-box">
-            <span>KV bytes = 2 × B × L × Hkv × T × d_head × bytes_per_elem</span>
-          </div>
-
-          <div class="insight-box" id="insight-box"></div>
         </section>
       </section>
 
-      <section class="visual-section" aria-label="可视化对比">
-        <div class="chart-panel">
-          <div class="panel-heading">
-            <h2>dtype 显存对比</h2>
-            <p>保持其他参数不变，仅改变 KV Cache 精度。</p>
+      <section class="mode-panel" id="basic-mode" aria-label="basic kv cache calculator">
+        <form class="input-panel" id="basic-form" novalidate>
+          <div class="panel-heading compact"><h2>基础 KV Cache</h2><p>标准 decoder-only self-attention 理论 KV 显存。</p></div>
+          <div class="field-grid dense">
+            <label class="field"><span>Layers L</span><input id="basic-layers" type="number" min="1" step="1" value="32" /></label>
+            <label class="field"><span>KV heads Hkv</span><input id="basic-kv-heads" type="number" min="1" step="1" value="8" /></label>
+            <label class="field"><span>Context T</span><input id="basic-context" type="number" min="1" step="1" value="4096" /></label>
+            <label class="field"><span>Batch B</span><input id="basic-batch" type="number" min="1" step="1" value="4" /></label>
+            <label class="field"><span>Head dim</span><input id="basic-head-dim" type="number" min="1" step="1" value="128" /></label>
+            <label class="field"><span>KV dtype</span><select id="basic-dtype"><option value="fp16" selected>fp16/bf16</option><option value="fp8">fp8/int8</option><option value="fp32">fp32</option><option value="int4">int4</option><option value="int2">int2</option></select></label>
           </div>
-          <div class="bar-chart" id="dtype-chart"></div>
-        </div>
-
-        <div class="chart-panel">
-          <div class="panel-heading">
-            <h2>MHA / GQA 对比</h2>
-            <p>KV heads 越少，KV Cache 显存越低。</p>
+          <p class="error-message" id="basic-error" role="alert" aria-live="polite"></p>
+        </form>
+        <section class="results-panel">
+          <div class="result-grid">
+            <article class="metric-card primary"><span class="metric-label">GiB</span><strong id="basic-gib">--</strong></article>
+            <article class="metric-card"><span class="metric-label">MiB</span><strong id="basic-mib">--</strong></article>
+            <article class="metric-card wide"><span class="metric-label">Bytes</span><strong id="basic-bytes">--</strong></article>
           </div>
-          <div class="comparison-list" id="heads-comparison"></div>
-        </div>
-      </section>
-
-      <section class="notes-section">
-        <h2>计算边界</h2>
-        <p>
-          该工具计算的是所有层 self-attention Key 和 Value Cache 的理论显存：不包含 page/block metadata、显存碎片、CUDA workspace、模型权重、activation，也不扣除 prefix cache 共享可能带来的收益。
-        </p>
+          <div class="formula-box">KV bytes = 2 × B × L × Hkv × T × d_head × bytes_per_elem</div>
+        </section>
       </section>
     </main>
-
     <script src="app.js"></script>
   </body>
 </html>
-

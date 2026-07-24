@@ -1,33 +1,20 @@
 ﻿# KV Cache Calculator
 
-![KV Cache Calculator screenshot](assets/screenshot.png)
+一个面向 LLM Inference / AI Infra 学习者和部署前 sizing 的静态网页工具。当前支持两个模式：
 
-一个面向 LLM Inference / AI Infra 学习者的 KV Cache 显存估算与可视化工具。它把 KV Cache 的核心成本模型做成一个可以直接打开的静态网页，方便对比 batch、上下文长度、KV heads 和 dtype 对显存的影响。
+- `KV Cache Basic`：估算 decoder-only self-attention KV Cache 理论显存。
+- `Deployment Sizing`：估算 GLM-5.2 在 vLLM / vLLM Ascend 推理部署时的 per-card 显存需求，并观察 TP/PP/DP/CP、MoE expert parallel、权重量化和 KV cache 量化的影响。
 
-> A lightweight visual calculator for estimating LLM KV Cache memory usage across batch size, context length, KV heads, and dtype.
+在线页面：
 
-## Features
-
-- 输入模型层数、KV head 数、上下文长度、batch、head dimension 和 dtype。
-- 实时输出 KV Cache 理论显存：bytes、MiB、GiB。
-- 支持 `fp32`、`fp16`、`bf16`、`fp8`、`int8`、`int4`、`int2`。
-- 提供 dtype 显存对比条形图。
-- 提供 MHA / GQA 的 KV heads 显存对比提示。
-- 内置 GQA、MHA、长上下文、大 batch 快捷配置。
-- 无需安装 npm、React、Vite 或任何前端依赖。
+```text
+https://hzchho.github.io/kv-cache-calculator/
+```
 
 ## Quick Start
 
-方式一：直接用浏览器打开：
-
-```text
-https://hzchho.github.io/kv-cache-calculator
-```
-
-方式二：使用 Python 启动本地静态服务：
-
 ```powershell
-cd ~/kv-cache-calculator
+cd kv-cache-calculator
 python -m http.server 8000
 ```
 
@@ -37,90 +24,92 @@ python -m http.server 8000
 http://localhost:8000
 ```
 
-## Formula
+## Basic KV Formula
 
 ```text
 KV bytes = 2 * B * L * Hkv * T * d_head * bytes_per_elem
 ```
 
-变量含义：
+其中 `2` 表示 Key 和 Value 两份缓存。
 
-| Symbol             | Meaning                                          |
-| ------------------ | ------------------------------------------------ |
-| `2`              | Key 和 Value 两份缓存                            |
-| `B`              | batch size 或并发序列数                          |
-| `L`              | Transformer 层数                                 |
-| `Hkv`            | KV head 数，GQA/MQA 通过减少它降低 KV Cache 显存 |
-| `T`              | 上下文长度 / cached token 数                     |
-| `d_head`         | 每个 attention head 的维度                       |
-| `bytes_per_elem` | KV Cache dtype 对应的单元素字节数                |
+## Deployment Formula
 
-## Supported dtype
-
-| dtype    | bytes/element |
-| -------- | ------------: |
-| `fp32` |             4 |
-| `fp16` |             2 |
-| `bf16` |             2 |
-| `fp8`  |             1 |
-| `int8` |             1 |
-| `int4` |           0.5 |
-| `int2` |          0.25 |
-
-## Example
-
-默认参数：
+部署模式使用更接近 serving sizing 的 per-card 估算。对于 Ascend 上的 GLM-5.2-W4A8C8，默认把 `W4`、`A8`、`C8/KV cache` 分开配置：
 
 ```text
-layers=32, kv_heads=8, context=4096, batch=4, head_dim=128, dtype=fp16
+W4  -> weight bytes/param = 0.5
+A8  -> activation bytes = 1
+C8  -> KV bytes/element = 1
 ```
 
-计算结果：
+KV cache worst-case：
 
 ```text
-2,147,483,648 bytes = 2,048 MiB = 2.0000 GiB
+logical_tokens = full_context_seqs * ceil(max_model_len / block_size) * block_size
+
+effective_kv_tokens_per_card = ceil(logical_tokens / kv_cp_or_dcp_shard)
+
+kv_per_card ~= effective_kv_tokens_per_card
+                * ceil(L / PP)
+                * ceil(Hkv / TP)
+                * (k_dim + v_dim)
+                * kv_bytes
 ```
 
-同样参数下：
-
-- `fp8` 约为 `fp16` 的一半。
-- `kv_heads=8` 约为 `kv_heads=32` 的四分之一。
-
-## Project Structure
+权重显存估算：
 
 ```text
-kv-cache-calculator/
-├── assets/
-│   └── screenshot.png
-├── app.js
-├── index.html
-├── styles.css
-├── README.md
-├── LICENSE
-└── .gitignore
+weight_per_card ~= model_weight_bytes / (TP * PP)
 ```
 
-## Calculation Scope
+如果启用 MoE expert parallel：
 
-该工具计算的是 decoder-only LLM self-attention KV Cache 的理论显存占用，不包含以下系统因素：
+```text
+weight_per_card ~= non_expert_bytes / (TP * PP)
+                  + expert_bytes / (TP * DP * PP)
+```
 
-- page/block metadata
-- allocator fragmentation
-- CUDA workspace
-- 模型权重显存
-- activation 显存
-- prefix cache 共享收益
-- offload / 分布式 KV 传输成本
+per-card 预算：
 
-因此它适合作为推理资源估算和学习工具。真正部署时，还需要结合 vLLM、SGLang、TensorRT-LLM 等 serving engine 的实际内存管理策略做 benchmark。
+```text
+budget_per_card = card_memory_gib * memory_utilization
+available_kv_per_card ~= budget_per_card - weight_per_card - runtime_reserve_gib
+```
 
-## Roadmap
+`runtime_reserve_gib` 用于预留 activation peak、graph、通信、fragmentation、临时 buffer 等静态公式难以精确建模的显存。
 
-- 增加常见模型预设：Llama、Mistral、Qwen、DeepSeek 等。
-- 增加 GPU 容量反推：给定显存预算，估算最大 batch 或最大 context。
-- 增加 PagedAttention / block size 粗略估算。
-- 增加 prefix cache 命中率对显存和吞吐的影响示意。
-- 发布到 GitHub Pages，提供在线访问链接。
+## GLM-5.2 Presets
+
+默认预设包括：
+
+- `GLM-5.2-W4A8C8 · Ascend`
+  - target: Atlas 800 A3 64G × 16
+  - `TP=16, DP=1, KV CP/DCP shard=16`
+  - `max_model_len=1024000`
+  - `full_context_seqs=1`
+  - `vLLM max_num_seqs=32` 仅作为调度参数提示，不等价于 32 条 full 1M context 同时占满 KV。
+- `GLM-5.2-W8A8 · Ascend`
+- `GLM-5.2-FP8`
+- `GLM-5.2-BF16`
+
+所有模型结构、硬件、量化和并行参数都可以手动覆盖。
+
+## Important Notes
+
+这个工具是静态估算器，不替代 vLLM / vLLM Ascend 启动时的 profiler 和真实 benchmark。真实部署时请以日志中的 KV cache size、maximum concurrency、OOM 行为和压测结果为准。
+
+GLM-5.2 属于 MoE + MLA/DSA 类架构，真实 KV cache layout 可能比标准 MHA/GQA 更复杂。当前工具默认使用 `qk_head_dim + v_head_dim` 做保守估算，并允许手动覆盖。
+
+`full_context_seqs` 是用于 KV worst-case sizing 的“满长上下文序列数”；它和 vLLM 的 `max_num_seqs` 不是同一个概念。长上下文部署时，32 个 scheduler seqs 不意味着 32 个 1M context 同时常驻 KV。
+
+## References
+
+- vLLM GLM-5.2 recipe: https://recipes.vllm.ai/zai-org/GLM-5.2
+- GLM-5.2-FP8 config: https://huggingface.co/zai-org/GLM-5.2-FP8/raw/main/config.json
+- vLLM Ascend documentation: https://vllm-ascend.readthedocs.io/
+- vLLM parallelism and scaling: https://docs.vllm.ai/en/v0.17.0/serving/parallelism_scaling/
+- vLLM data parallel deployment: https://docs.vllm.ai/en/stable/serving/data_parallel_deployment/
+- vLLM CacheConfig: https://docs.vllm.ai/en/v0.14.1/api/vllm/config/cache/
 
 ## License
 
